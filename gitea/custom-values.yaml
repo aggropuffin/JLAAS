@@ -6,7 +6,7 @@ postgresql-ha:
 valkey-cluster:
   enabled: false
 valkey:
-  enabled: true
+  enabled: false
   image:
     registry: docker.io
     repository: valkey/valkey
@@ -22,17 +22,21 @@ global:
   security:
     allowInsecureImages: true
 
-# CNPG cluster 'default' => use default-rw (adjust if you rename later)
+# Optional metadata only; not consumed by the chart unless we change templates.
 externalPostgres:
   serviceHost: "default-rw"
   servicePort: 5432
   dbName: "gitea"
   dbUser: "gitea"
-  dbPassword: ""          # pass via --set-string at install/upgrade
+  dbPassword: ""
   sslMode: "disable"
 
+# Make SCC happy: override the chart’s default fsGroup:1000
 podSecurityContext:
   fsGroup: null
+  fsGroupChangePolicy: "OnRootMismatch"
+  supplementalGroups: []
+
 containerSecurityContext:
   runAsNonRoot: true
   runAsUser: null
@@ -58,6 +62,7 @@ gitea:
     password: "r8sA8CPHD9!bt6d"
     email: "gitea@local.domain"
     passwordMode: keepUpdated
+
   config:
     server:
       PROTOCOL: http
@@ -65,19 +70,23 @@ gitea:
       ROOT_URL: "http://gitea.apps-crc.testing"
       HTTP_PORT: 3000
       SSH_PORT: 22
+
+    # IMPORTANT: use literals here (no {{ }})
     database:
       DB_TYPE: postgres
-      HOST: "{{ .Values.externalPostgres.serviceHost }}:{{ .Values.externalPostgres.servicePort }}"
-      NAME: "{{ .Values.externalPostgres.dbName }}"
-      USER: "{{ .Values.externalPostgres.dbUser }}"
-      PASSWD: "{{ .Values.externalPostgres.dbPassword }}"
-      SSL_MODE: "{{ .Values.externalPostgres.sslMode }}"
+      HOST: "default-rw:5432"   # literal — not templated
+      NAME: "app"
+      USER: "app"
+      PASSWD: "0VSf8VfWks3GwQGgJBTFtk3wPpAYDMnTarx9mdCsLFV8XVtEE4UWRKo92QCgvI5W"                # set via --set-string at install/upgrade
+      SSL_MODE: "disable"
+
     indexer:
       ISSUE_INDEXER_TYPE: bleve
       REPO_INDEXER_ENABLED: true
     actions:
       enabled: true
 
+# If you want Route via extraDeploy (works for you), keep it:
 extraDeploy:
   - apiVersion: route.openshift.io/v1
     kind: Route
