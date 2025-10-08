@@ -6,11 +6,11 @@ postgresql-ha:
 valkey-cluster:
   enabled: false
 valkey:
-  enabled: false
+  enabled: true
   image:
     registry: docker.io
     repository: valkey/valkey
-    tag: "8.1.3"
+    tag: "9.0"
   master:
     persistence:
       enabled: true
@@ -67,7 +67,7 @@ gitea:
     server:
       PROTOCOL: http
       DOMAIN: gitea.apps-crc.testing
-      ROOT_URL: "http://gitea.apps-crc.testing"
+      ROOT_URL: "https://gitea.apps-crc.testing"
       HTTP_PORT: 3000
       SSH_PORT: 22
 
@@ -86,8 +86,14 @@ gitea:
     actions:
       enabled: true
 
+  oauth:
+    - name: "keycloak"   # must match the callback segment used in Keycloak's redirect URI
+      provider: "openidConnect"
+      existingSecret: gitea-oauth-secret
+      autoDiscoverUrl: "https://keycloak-keycloak.apps-crc.testing/realms/gitea/.well-known/openid-configuration"
+      scopes: "openid profile email"
 # If you want Route via extraDeploy (works for you), keep it:
-extraDeploy:
+  extraDeploy:
   - apiVersion: route.openshift.io/v1
     kind: Route
     metadata:
@@ -105,3 +111,23 @@ extraDeploy:
       port:
         targetPort: http
       wildcardPolicy: None
+
+# Mount the injected bundle
+extraVolumes:
+  - name: trusted-ca
+    configMap:
+      name: keycloak-ca
+      items:
+        - key: ca-bundle.crt
+          path: ca-bundle.crt
+
+extraVolumeMounts:
+  - name: trusted-ca
+    mountPath: /etc/pki/tls/certs/ca-bundle.crt
+    subPath: ca-bundle.crt
+    readOnly: true
+
+extraEnv:
+  - name: SSL_CERT_FILE
+    value: /etc/pki/tls/certs/ca-bundle.crt
+                   # now that you’re on HTTPS
