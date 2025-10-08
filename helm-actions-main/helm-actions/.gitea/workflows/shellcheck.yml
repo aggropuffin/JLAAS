@@ -1,0 +1,14 @@
+name: Lint Shell files
+
+on:
+  pull_request:
+    branches: ["*"]
+    types: ["opened", "reopened", "synchronize"]
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - run: apt update --yes && apt install --yes shellcheck
+      - run: find . -type f -name "*.sh" -exec shellcheck -a {} \;

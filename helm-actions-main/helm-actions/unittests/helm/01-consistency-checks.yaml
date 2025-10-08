@@ -1,0 +1,35 @@
+suite: actions template | consistency checks
+release:
+  name: gitea-unittests
+  namespace: testing
+templates:
+  - templates/01-consistency-checks.yaml
+tests:
+  - it: fails when provisioning is disabled BUT existingSecret and existingSecretKey are missing
+    set:
+      enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "existingSecret and existingSecretKey are required when provisioning is disabled"
+  - it: fails when provisioning is disabled BUT existingSecretKey is missing
+    set:
+      enabled: true
+      existingSecret: "my-secret"
+    asserts:
+      - failedTemplate:
+          errorMessage: "existingSecret and existingSecretKey are required when provisioning is disabled"
+  - it: fails when provisioning is disabled BUT existingSecret is missing
+    set:
+      enabled: true
+      existingSecretKey: "my-secret-key"
+    asserts:
+      - failedTemplate:
+          errorMessage: "existingSecret and existingSecretKey are required when provisioning is disabled"
+  - it: fails when LOCAL_ROOT_URL is missing
+    set:
+      enabled: true
+      existingSecret: "my-secret"
+      existingSecretKey: "my-secret-key"
+    asserts:
+      - failedTemplate:
+          errorMessage: "giteaRootURL is required"
