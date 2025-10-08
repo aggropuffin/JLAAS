@@ -1,0 +1,133 @@
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+
+valkey-cluster:
+  enabled: false
+valkey:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: valkey/valkey
+    tag: "9.0"
+  master:
+    persistence:
+      enabled: true
+
+persistence:
+  enabled: true
+
+global:
+  security:
+    allowInsecureImages: true
+
+# Optional metadata only; not consumed by the chart unless we change templates.
+externalPostgres:
+  serviceHost: "default-rw"
+  servicePort: 5432
+  dbName: "gitea"
+  dbUser: "gitea"
+  dbPassword: ""
+  sslMode: "disable"
+
+# Make SCC happy: override the chart’s default fsGroup:1000
+podSecurityContext:
+  fsGroup: null
+  fsGroupChangePolicy: "OnRootMismatch"
+  supplementalGroups: []
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: null
+  runAsGroup: null
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+  seLinuxOptions: null
+
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+  ssh:
+    type: ClusterIP
+    port: 22
+
+gitea:
+  admin:
+    username: gitea_admin
+    password: "r8sA8CPHD9!bt6d"
+    email: "gitea@local.domain"
+    passwordMode: keepUpdated
+
+  config:
+    server:
+      PROTOCOL: http
+      DOMAIN: gitea.apps-crc.testing
+      ROOT_URL: "https://gitea.apps-crc.testing"
+      HTTP_PORT: 3000
+      SSH_PORT: 22
+
+    # IMPORTANT: use literals here (no {{ }})
+    database:
+      DB_TYPE: postgres
+      HOST: "default-rw:5432"   # literal — not templated
+      NAME: "app"
+      USER: "app"
+      PASSWD: "0VSf8VfWks3GwQGgJBTFtk3wPpAYDMnTarx9mdCsLFV8XVtEE4UWRKo92QCgvI5W"                # set via --set-string at install/upgrade
+      SSL_MODE: "disable"
+
+    indexer:
+      ISSUE_INDEXER_TYPE: bleve
+      REPO_INDEXER_ENABLED: true
+    actions:
+      enabled: true
+
+  oauth:
+    - name: "keycloak"   # must match the callback segment used in Keycloak's redirect URI
+      provider: "openidConnect"
+      existingSecret: gitea-oauth-secret
+      autoDiscoverUrl: "https://keycloak-keycloak.apps-crc.testing/realms/gitea/.well-known/openid-configuration"
+      scopes: "openid profile email"
+# If you want Route via extraDeploy (works for you), keep it:
+  extraDeploy:
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: gitea
+      namespace: gitea
+      labels:
+        app.kubernetes.io/name: gitea
+        app.kubernetes.io/instance: gitea
+    spec:
+      host: gitea.apps-crc.testing
+      to:
+        kind: Service
+        name: "{{ .Release.Name }}-http"
+        weight: 100
+      port:
+        targetPort: http
+      wildcardPolicy: None
+
+# Mount the injected bundle
+extraVolumes:
+  - name: trusted-ca
+    configMap:
+      name: keycloak-ca
+      items:
+        - key: ca-bundle.crt
+          path: ca-bundle.crt
+
+extraVolumeMounts:
+  - name: trusted-ca
+    mountPath: /etc/pki/tls/certs/ca-bundle.crt
+    subPath: ca-bundle.crt
+    readOnly: true
+
+extraEnv:
+  - name: SSL_CERT_FILE
+    value: /etc/pki/tls/certs/ca-bundle.crt
+                   # now that you’re on HTTPS
