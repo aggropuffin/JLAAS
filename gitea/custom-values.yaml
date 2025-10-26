@@ -77,7 +77,7 @@ gitea:
       HOST: "default-rw:5432"   # literal — not templated
       NAME: "app"
       USER: "app"
-      PASSWD: "0VSf8VfWks3GwQGgJBTFtk3wPpAYDMnTarx9mdCsLFV8XVtEE4UWRKo92QCgvI5W"                # set via --set-string at install/upgrade
+      PASSWD: "koZYd2tsTjgOJjvEwPZDw7L06lb1hTG3sPpC2FeqTIK9O1NtzfOZFtkgBV4WJvNT"                # set via --set-string at install/upgrade
       SSL_MODE: "disable"
 
     indexer:
@@ -93,24 +93,28 @@ gitea:
       autoDiscoverUrl: "https://keycloak-keycloak.apps-crc.testing/realms/gitea/.well-known/openid-configuration"
       scopes: "openid profile email"
 # If you want Route via extraDeploy (works for you), keep it:
-  extraDeploy:
-  - apiVersion: route.openshift.io/v1
-    kind: Route
-    metadata:
-      name: gitea
-      namespace: gitea
-      labels:
-        app.kubernetes.io/name: gitea
-        app.kubernetes.io/instance: gitea
-    spec:
-      host: gitea.apps-crc.testing
-      to:
-        kind: Service
-        name: "{{ .Release.Name }}-http"
-        weight: 100
-      port:
-        targetPort: http
-      wildcardPolicy: None
+extraDeploy:
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: gitea
+    namespace: gitea
+    labels:
+      app.kubernetes.io/name: gitea
+      app.kubernetes.io/instance: gitea
+  spec:
+    host: gitea.apps-crc.testing
+    to:
+      kind: Service
+      name: "{{ .Release.Name }}-http"
+      weight: 100
+    port:
+      targetPort: http
+    wildcardPolicy: None
+    tls:
+      termination: edge             # router terminates TLS; backend stays HTTP:3000
+      insecureEdgeTerminationPolicy: Redirect   # auto-redirect http -> https
+    wildcardPolicy: None
 
 # Mount the injected bundle
 extraVolumes:
