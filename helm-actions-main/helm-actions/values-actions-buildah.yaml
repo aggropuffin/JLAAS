@@ -1,0 +1,78 @@
+enabled: true
+
+# Your Gitea URL
+giteaRootURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+
+# Use an existing token secret instead of embedding the token in values
+existingSecret: "gitea-actions-token"
+existingSecretKey: "token"
+
+# Make the runner pod use our SA (so we can tune SCC separately if needed)
+serviceAccount:
+  create: false
+  name: buildah-sa
+
+statefulset:
+  replicas: 1
+
+  # Turn OFF DinD usage
+  builder:
+    type: buildah
+
+  # Act Runner container image as-is
+  actRunner:
+    repository: gitea/act_runner
+    tag: "0.2.13"
+    pullPolicy: IfNotPresent
+
+    # IMPORTANT: runner config — disable Docker requirement
+    config: |
+      log:
+        level: debug
+      cache:
+        enabled: false
+      container:
+        # This is the important change
+        require_docker: false
+        # Optional timeouts etc.
+        docker_timeout: 300s
+
+    # Extra envs that make Buildah behave under OpenShift restricted policy
+    extraEnvs:
+      - name: STORAGE_DRIVER
+        value: "vfs"
+      - name: BUILDAH_ISOLATION
+        value: "chroot"
+      - name: BUILDAH_FORMAT
+        value: "docker"
+      - name: XDG_RUNTIME_DIR
+        value: "/tmp"
+
+  # (We ignore statefulset.dind.* because we won’t render that container)
+
+  # Keep persistence if you want (not required for Buildah)
+  persistence:
+    size: 1Gi
+
+# Init image is fine
+init:
+  image:
+    repository: busybox
+    tag: "1.37.0"
+
+# Security hardening to satisfy Pod Security "restricted"
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# Optional global fields, leave empty or set your storageClass if needed
+global:
+  imageRegistry: ""
+  storageClass: ""

@@ -1,0 +1,32 @@
+enabled: true
+giteaRootURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+
+existingSecret: "gitea-actions-token"
+existingSecretKey: "token"
+
+statefulset:
+  replicas: 1
+
+  # Keep Docker-in-Docker ON (DinD mode)
+  dind:
+    enabled: true
+    repository: docker
+    tag: "28.5.1-dind-rootless"
+    pullPolicy: IfNotPresent
+    # optional persistence for /var/lib/docker:
+    # extraVolumeMounts:
+    #   - name: docker-lib
+    #     mountPath: /var/lib/docker
+
+  actRunner:
+    repository: gitea/act_runner
+    tag: "0.2.13-dind-rootless"
+    pullPolicy: IfNotPresent
+    # leave default config that requires Docker (no k8s executor here)
+
+# optional: extraVolumes for a PVC:
+# statefulset:
+#   extraVolumes:
+#     - name: docker-lib
+#       persistentVolumeClaim:
+#         claimName: docker-lib-pvc

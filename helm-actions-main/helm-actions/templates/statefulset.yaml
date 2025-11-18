@@ -30,6 +30,8 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+# added service account
+      serviceAccountName: {{ include "gitea.actions.fullname" . }}-runner
       initContainers:
         - name: init-gitea
           image: "{{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}"
@@ -72,6 +74,7 @@ spec:
               subPath: config.yaml
             - mountPath: /certs/client
               name: docker-certs
+              subPath: client
             - mountPath: /data
               name: data-act-runner
             {{- with .Values.statefulset.actRunner.extraVolumeMounts }}
@@ -87,6 +90,8 @@ spec:
               value: "1"
             - name: DOCKER_CERT_PATH
               value: /certs/client
+            - name: DOCKER_TLS_CERTDIR
+              value: /certs
             {{- if .Values.statefulset.dind.extraEnvs }}
             {{- toYaml .Values.statefulset.dind.extraEnvs | nindent 12 }}
             {{- end }}
@@ -95,12 +100,12 @@ spec:
           resources:
             {{- toYaml .Values.statefulset.resources | nindent 12 }}
           volumeMounts:
-            - mountPath: /certs/client
+            - mountPath: /certs
               name: docker-certs
             {{- with .Values.statefulset.dind.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-      {{- range $key, $value := .Values.statefulset.nodeSelector }}
+{{- range $key, $value := .Values.statefulset.nodeSelector }}
       nodeSelector:
         {{ $key }}: {{ $value | quote }}
       {{- end }}
