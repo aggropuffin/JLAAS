@@ -1,0 +1,8 @@
+# trusted-ca-bundle.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trusted-ca-bundle
+  namespace: gitea
+  annotations:
+    config.openshift.io/inject-trusted-cabundle: "true"

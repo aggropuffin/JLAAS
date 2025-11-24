@@ -9,7 +9,7 @@ metadata:
     {{- include "gitea.actions.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- with .Values.statefulset.actRunner.config -}}
-    {{ . | nindent 4}}
-    {{- end -}}
+    {{- with .Values.statefulset.actRunner.config }}
+    {{ . | nindent 4 }}
+    {{- end }}
 {{- end }}

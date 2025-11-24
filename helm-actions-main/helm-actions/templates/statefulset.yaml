@@ -1,138 +1,128 @@
 {{- if .Values.enabled }}
-{{- $secretName := include "gitea.actions.workername" (dict "global" . "worker" "actions-token") }}
+{{- $fullname := include "gitea.actions.fullname" . -}}
+{{- $useBuildah := eq .Values.statefulset.builder.type "buildah" -}}
+{{- $workDir := default "/data" .Values.statefulset.workDir -}}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  labels:
-    {{- include "gitea.actions.labels.actRunner" . | nindent 4 }}
-    {{- with .Values.statefulset.labels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-  annotations:
-    {{- with .Values.statefulset.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
-  name: {{ include "gitea.actions.fullname" . }}-act-runner
+  name: {{ $fullname }}-act-runner
   namespace: {{ .Values.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "gitea.actions.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ $fullname }}-act-runner
   replicas: {{ .Values.statefulset.replicas | default 1 }}
   selector:
     matchLabels:
-      {{- include "gitea.actions.selectorLabels.actRunner" . | nindent 6 }}
+      {{- include "gitea.actions.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/config-act-runner.yaml") . | sha256sum }}
       labels:
-        {{- include "gitea.actions.labels.actRunner" . | nindent 8 }}
-        {{- with .Values.statefulset.labels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        {{- include "gitea.actions.labels" . | nindent 8 }}
     spec:
-# added service account
-      serviceAccountName: {{ include "gitea.actions.fullname" . }}-runner
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      {{- if and .Values.statefulset.register.enabled }}
       initContainers:
-        - name: init-gitea
-          image: "{{ .Values.init.image.repository }}:{{ .Values.init.image.tag }}"
-          command:
-            - sh
-            - -c
-            - |
-              echo 'Trying to reach Gitea on {{ include "gitea.actions.local_root_url" . }}'
-              until timeout 10 wget --no-check-certificate --spider {{ include "gitea.actions.local_root_url" . }}; do
-                sleep 3
-                echo "Trying again in 3 seconds..."
-              done
-              echo "Gitea has been reached!"
+        - name: register-runner
+          image: "{{ .Values.statefulset.actRunner.repository }}:{{ .Values.statefulset.actRunner.tag }}"
+          imagePullPolicy: {{ .Values.statefulset.actRunner.pullPolicy }}
+          workingDir: {{ $workDir }}
+          command: ["/usr/local/bin/act_runner"]
+          args:
+            - "register"
+            - "--instance"
+            - "{{ .Values.giteaRootURL }}"
+            - "--token"
+            - "$(GITEA_RUNNER_REGISTRATION_TOKEN)"
+            - "--name"
+            - "{{ .Values.statefulset.register.name }}"
+            - "--labels"
+            - "{{ .Values.statefulset.register.labels }}"
+          env:
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.existingSecretKey }}
+          volumeMounts:
+            - name: runner-data
+              mountPath: {{ $workDir }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      {{- end }}
+
       containers:
         - name: act-runner
           image: "{{ .Values.statefulset.actRunner.repository }}:{{ .Values.statefulset.actRunner.tag }}"
           imagePullPolicy: {{ .Values.statefulset.actRunner.pullPolicy }}
-          workingDir: /data
+          workingDir: {{ $workDir }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "[INFO] Forcing Buildah 'chroot' isolation in user config"
+              # Create the override config file before act_runner starts
+              mkdir -p /data/.config/containers
+              cat <<EOF > /data/.config/containers/containers.conf
+              [containers]
+              isolation = "chroot"
+              EOF
+              
+              echo "[INFO] Starting Gitea Actions Runner (Buildah mode)";
+              exec /usr/local/bin/act_runner daemon --config /etc/act-runner/config.yaml
           env:
-            - name: DOCKER_HOST
-              value: tcp://127.0.0.1:2376
-            - name: DOCKER_TLS_VERIFY
-              value: "1"
-            - name: DOCKER_CERT_PATH
-              value: /certs/client
+            - name: GITEA_INSTANCE_URL
+              value: "{{ .Values.giteaRootURL }}"
+            - name: GITEA_RUNNER_NAME
+              value: "{{ .Values.statefulset.register.name }}"
+            - name: GITEA_RUNNER_LABELS
+              value: "{{ .Values.statefulset.register.labels }}"
             - name: GITEA_RUNNER_REGISTRATION_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: "{{ .Values.existingSecret | default $secretName }}"
-                  key: "{{ .Values.existingSecretKey | default "token" }}"
-            - name: GITEA_INSTANCE_URL
-              value: {{ include "gitea.actions.local_root_url" . }}
-            - name: CONFIG_FILE
-              value: /actrunner/config.yaml
-          resources:
-            {{- toYaml .Values.statefulset.resources | nindent 12 }}
+                  name: {{ .Values.existingSecret }}
+                  key: {{ .Values.existingSecretKey }}
+            {{- range .Values.statefulset.extraEnvs }}
+            - name: {{ .name }}
+              value: "{{ .value }}"
+            {{- end }}
+
           volumeMounts:
-            - mountPath: /actrunner/config.yaml
-              name: act-runner-config
-              subPath: config.yaml
-            - mountPath: /certs/client
-              name: docker-certs
-              subPath: client
-            - mountPath: /data
-              name: data-act-runner
-            {{- with .Values.statefulset.actRunner.extraVolumeMounts }}
-            {{- toYaml . | nindent 12 }}
+            - name: runner-config
+              mountPath: /etc/act-runner
+            - name: runner-data
+              mountPath: {{ $workDir }}
+            - name: tmp
+              mountPath: /tmp
+              {{- if $useBuildah }}
+            - name: buildah-storage
+              mountPath: /var/lib/containers
             {{- end }}
-        - name: dind
-          image: "{{ .Values.statefulset.dind.repository }}:{{ .Values.statefulset.dind.tag }}"
-          imagePullPolicy: {{ .Values.statefulset.dind.pullPolicy }}
-          env:
-            - name: DOCKER_HOST
-              value: tcp://127.0.0.1:2376
-            - name: DOCKER_TLS_VERIFY
-              value: "1"
-            - name: DOCKER_CERT_PATH
-              value: /certs/client
-            - name: DOCKER_TLS_CERTDIR
-              value: /certs
-            {{- if .Values.statefulset.dind.extraEnvs }}
-            {{- toYaml .Values.statefulset.dind.extraEnvs | nindent 12 }}
-            {{- end }}
+
           securityContext:
-            privileged: true
-          resources:
-            {{- toYaml .Values.statefulset.resources | nindent 12 }}
-          volumeMounts:
-            - mountPath: /certs
-              name: docker-certs
-            {{- with .Values.statefulset.dind.extraVolumeMounts }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
-{{- range $key, $value := .Values.statefulset.nodeSelector }}
-      nodeSelector:
-        {{ $key }}: {{ $value | quote }}
-      {{- end }}
-      {{- with .Values.statefulset.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.statefulset.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
       volumes:
-        - name: act-runner-config
+        - name: runner-config
           configMap:
-            name: {{ include "gitea.actions.fullname" . }}-act-runner-config
-        - name: docker-certs
+            name: {{ $fullname }}-act-runner-config
+
+        # /data (or custom workDir) holds the .runner file
+        - name: runner-data
+          {{- if and .Values.statefulset.dataVolume (eq .Values.statefulset.dataVolume.type "pvc") .Values.statefulset.dataVolume.pvc.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-runner-pvc
+          {{- else }}
           emptyDir: {}
-        {{- with .Values.statefulset.extraVolumes }}
-        {{- toYaml . | nindent 8 }}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+
+        {{- if $useBuildah }}
+        - name: buildah-storage
+          emptyDir: {}
         {{- end }}
-  volumeClaimTemplates:
-    - metadata:
-        name: data-act-runner
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        {{- include "gitea.actions.persistence.storageClass" . | nindent 8 }}
-        resources:
-          requests:
-            storage: {{ .Values.statefulset.persistence.size }}
 {{- end }}
